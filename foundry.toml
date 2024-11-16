@@ -8,3 +8,7 @@ evm_version = "cancun"
 optimizer_runs = 800
 via_ir = false
 ffi = true
+
+remappings = [
+    "solady/=lib/solady/src/"
+]
