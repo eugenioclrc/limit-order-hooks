@@ -38,6 +38,7 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
     error InvalidOrder();
     error NothingToClaim();
     error NotEnoughToClaim();
+    error OnlyByPoolManager();
 
     mapping(PoolId poolId => mapping(int24 tickToSellAt => mapping(bool zeroForOne => uint256 inputAmount))) public
         pendingOrders;
@@ -48,6 +49,15 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
 
     // TakeProfitsHook.sol
     mapping(PoolId poolId => int24 lastTick) public lastTicks;
+
+    modifier onlyByPoolManager() {
+        _onlyByPoolManager();
+        _;
+    }
+
+    function _onlyByPoolManager() private view {
+        if (msg.sender != address(poolManager)) revert OnlyByPoolManager();
+    }
 
     // Constructor
     constructor(IPoolManager _manager, string memory _uri) BaseHook(_manager) ERC1155(_uri) {}
@@ -93,26 +103,29 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         // if `sender` is the hook, we don't want to go down the `afterSwap`
         // rabbit hole again
         if (sender == address(this)) return (this.afterSwap.selector, 0);
-
+    
         // Should we try to find and execute orders? True initially
         bool tryMore = true;
         int24 currentTick;
-
+    
         while (tryMore) {
             // Try executing pending orders for this pool
-
+    
             // `tryMore` is true if we successfully found and executed an order
             // which shifted the tick value
             // and therefore we need to look again if there are any pending orders
             // within the new tick range
-
+    
             // `tickAfterExecutingOrder` is the tick value of the pool
             // after executing an order
             // if no order was executed, `tickAfterExecutingOrder` will be
             // the same as current tick, and `tryMore` will be false
-            (tryMore, currentTick) = tryExecutingOrders(key, !params.zeroForOne);
+            (tryMore, currentTick) = tryExecutingOrders(
+                key,
+                !params.zeroForOne
+            );
         }
-
+    
         // New last known tick for this pool is the tick value
         // after our orders are executed
         lastTicks[key.toId()] = currentTick;
