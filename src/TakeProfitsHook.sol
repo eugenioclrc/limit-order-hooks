@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
-import {ERC1155} from "solady/src/tokens/ERC1155.sol";
+import {ERC1155} from "solady/tokens/ERC1155.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 
@@ -117,8 +117,8 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         address sender,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
-        BalanceDelta,
-        bytes calldata
+        BalanceDelta delta,
+        bytes calldata data
     ) external override onlyByPoolManager returns (bytes4, int128) {
         // `sender` is the address which initiated the swap
         // if `sender` is the hook, we don't want to go down the `afterSwap`
@@ -154,7 +154,7 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
     }
 
     function getLowerUsableTick(int24 tick, int24 tickSpacing) private pure returns (int24) {
-        // E.g. tickSpacing = 60, tick = -100
+        // e.g. tickSpacing = 60, tick = -100
         // closest usable tick rounded-down will be -120
 
         // intervals = -100/60 = -1 (integer division)
