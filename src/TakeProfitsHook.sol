@@ -2,7 +2,7 @@
 pragma solidity 0.8.26;
 
 import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
-import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import {ERC1155} from "solady/src/tokens/ERC1155.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 
@@ -19,6 +19,12 @@ import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 
+// Import the SafeERC20 library
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title TakeProfitsHook
+/// @notice This contract implements a hook for managing profit-taking orders in a liquidity pool.
+/// @dev Inherits from BaseHook and ERC1155 to manage token claims and orders.
 contract TakeProfitsHook is BaseHook, ERC1155 {
     // StateLibrary is new here and we haven't seen that before
     // It's used to add helper functions to the PoolManager to read
@@ -50,6 +56,8 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
     // TakeProfitsHook.sol
     mapping(PoolId poolId => int24 lastTick) public lastTicks;
 
+    /// @notice Modifier to restrict access to the pool manager.
+    /// @dev Reverts if the caller is not the pool manager.
     modifier onlyByPoolManager() {
         _onlyByPoolManager();
         _;
@@ -59,10 +67,12 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         if (msg.sender != address(poolManager)) revert OnlyByPoolManager();
     }
 
-    // Constructor
-    constructor(IPoolManager _manager, string memory _uri) BaseHook(_manager) ERC1155(_uri) {}
+    /// @notice Constructor to initialize the TakeProfitsHook contract.
+    /// @param _manager The address of the pool manager.
+    constructor(IPoolManager _manager) BaseHook(_manager) {}
 
-    // BaseHook Functions
+    /// @notice Returns the permissions for the hook.
+    /// @return Hooks.Permissions The permissions for the hook.
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -82,6 +92,10 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         });
     }
 
+    /// @notice Called after the pool is initialized.
+    /// @param key The PoolKey for the pool.
+    /// @param tick The current tick of the pool.
+    /// @return The selector for the afterInitialize function.
     function afterInitialize(address, PoolKey calldata key, uint160, int24 tick)
         external
         override
@@ -92,6 +106,13 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         return this.afterInitialize.selector;
     }
 
+    /// @notice Called after a swap occurs in the pool.
+    /// @param sender The address that initiated the swap.
+    /// @param key The PoolKey for the pool.
+    /// @param params The parameters for the swap.
+    /// @param delta The balance delta after the swap.
+    /// @param data Additional data for the swap.
+    /// @return The selector for the afterSwap function and the new tick.
     function afterSwap(
         address sender,
         PoolKey calldata key,
@@ -152,6 +173,12 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         return uint256(keccak256(abi.encode(key.toId(), tick, zeroForOne)));
     }
 
+    /// @notice Places a new order in the pool.
+    /// @param key The PoolKey for the pool.
+    /// @param tickToSellAt The tick at which to sell.
+    /// @param zeroForOne Indicates the direction of the swap.
+    /// @param inputAmount The amount of tokens to input for the order.
+    /// @return The tick at which the order was placed.
     function placeOrder(PoolKey calldata key, int24 tickToSellAt, bool zeroForOne, uint256 inputAmount)
         external
         returns (int24)
@@ -175,6 +202,11 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         return tick;
     }
 
+    /// @notice Cancels an existing order.
+    /// @param key The PoolKey for the pool.
+    /// @param tickToSellAt The tick at which the order was placed.
+    /// @param zeroForOne Indicates the direction of the swap.
+    /// @param amountToCancel The amount of the order to cancel.
     function cancelOrder(PoolKey calldata key, int24 tickToSellAt, bool zeroForOne, uint256 amountToCancel) external {
         // Get lower actually usable tick for their order
         int24 tick = getLowerUsableTick(tickToSellAt, key.tickSpacing);
@@ -195,6 +227,11 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         token.transfer(msg.sender, amountToCancel);
     }
 
+    /// @notice Redeems tokens based on the order.
+    /// @param key The PoolKey for the pool.
+    /// @param tickToSellAt The tick at which the order was placed.
+    /// @param zeroForOne Indicates the direction of the swap.
+    /// @param inputAmountToClaimFor The amount of input tokens to claim.
     function redeem(PoolKey calldata key, int24 tickToSellAt, bool zeroForOne, uint256 inputAmountToClaimFor)
         external
     {
@@ -228,6 +265,10 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         token.transfer(msg.sender, outputAmount);
     }
 
+    /// @notice Swaps tokens and settles balances.
+    /// @param key The PoolKey for the pool.
+    /// @param params The parameters for the swap.
+    /// @return The balance delta after the swap.
     function swapAndSettleBalances(PoolKey calldata key, IPoolManager.SwapParams memory params)
         internal
         returns (BalanceDelta)
@@ -262,6 +303,10 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         return delta;
     }
 
+    /// @notice Tries to execute pending orders.
+    /// @param key The PoolKey for the pool.
+    /// @param executeZeroForOne Indicates the direction of the swap.
+    /// @return tryMore Indicates if there are more orders to execute and the new tick.
     function tryExecutingOrders(PoolKey calldata key, bool executeZeroForOne)
         internal
         returns (bool tryMore, int24 newTick)
@@ -328,6 +373,9 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         return (false, currentTick);
     }
 
+    /// @notice Settles the balance for a given currency.
+    /// @param currency The currency to settle.
+    /// @param amount The amount to settle.
     function _settle(Currency currency, uint128 amount) internal {
         // Transfer tokens to PM and let it know
         poolManager.sync(currency);
@@ -335,11 +383,19 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
         poolManager.settle();
     }
 
+    /// @notice Takes tokens from the pool manager to the hook contract.
+    /// @param currency The currency to take.
+    /// @param amount The amount to take.
     function _take(Currency currency, uint128 amount) internal {
         // Take tokens out of PM to our hook contract
         poolManager.take(currency, address(this), amount);
     }
 
+    /// @notice Executes an order in the pool.
+    /// @param key The PoolKey for the pool.
+    /// @param tick The tick at which the order is executed.
+    /// @param zeroForOne Indicates the direction of the swap.
+    /// @param inputAmount The amount of tokens to input for the order.
     function executeOrder(PoolKey calldata key, int24 tick, bool zeroForOne, uint256 inputAmount) internal {
         // Do the actual swap and settle all balances
         BalanceDelta delta = swapAndSettleBalances(
@@ -360,5 +416,36 @@ contract TakeProfitsHook is BaseHook, ERC1155 {
 
         // `outputAmount` worth of tokens now can be claimed/redeemed by position holders
         claimableOutputTokens[positionId] += outputAmount;
+    }
+
+    /// @notice Returns the URI for a given token ID.
+    /// @param id The token ID.
+    /// @return The URI for the token.
+    function uri(uint256 id) public pure virtual override returns (string memory) {
+        // Implement your URI logic here
+        // For example, return a base URI + token ID
+        return string(abi.encodePacked("https://your-api.com/token/", toString(id)));
+    }
+
+    /// @notice Converts a uint256 value to a string.
+    /// @param value The value to convert.
+    /// @return The string representation of the value.
+    function toString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
     }
 }
